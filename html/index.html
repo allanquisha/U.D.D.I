@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>U.D.D.I Service Bench</title>
+<style>
+body{font-family:Arial,sans-serif;margin:20px;background:#1a1a1a;color:#fff}
+h1{color:#00ff88;text-align:center}
+.container{max-width:800px;margin:0 auto}
+.card{background:#2a2a2a;padding:20px;margin:15px 0;border-radius:10px;box-shadow:0 4px 6px rgba(0,0,0,0.3)}
+.status{font-size:24px;font-weight:bold;color:#00ff88}
+.label{color:#888;margin-bottom:5px}
+button{background:#00ff88;color:#000;border:none;padding:12px 24px;font-size:16px;border-radius:5px;cursor:pointer;margin:5px}
+button:hover{background:#00cc6a}
+button:active{transform:scale(0.95)}
+.value{font-size:32px;font-weight:bold;margin:10px 0}
+.unit{font-size:18px;color:#888}
+</style>
+</head>
+<body>
+<div class='container'>
+<h1>🛠️ U.D.D.I Service Bench</h1>
+<div class='card'>
+<div class='label'>🔋 Battery Voltage</div>
+<div class='value' id='voltage'>--.- <span class='unit'>V</span></div>
+<button onclick='resetBattery()'>Reset Battery</button>
+</div>
+<div class='card'>
+<div class='label'>⚡ Motor RPM</div>
+<div class='value' id='rpm'>---- <span class='unit'>RPM</span></div>
+<button onclick='startMotor()'>Start Motor</button>
+<button onclick='stopMotor()'>Stop Motor</button>
+</div>
+<div class='card'>
+<div class='label'>⏱️ System Uptime</div>
+<div class='status' id='uptime'>0s</div>
+</div>
+<div class='card'>
+<div class='label'>📶 WiFi Configuration</div>
+<button onclick='scanNetworks()'>Scan Networks</button>
+<button onclick='clearWiFi()' style='background:#ff4444;margin-left:5px'>Clear Saved WiFi</button><br>
+<select id='wifiList' style='width:100%;margin:5px 0;padding:8px;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:5px'>
+<option value=''>Select Network...</option>
+</select><br>
+<input type='text' id='ssid' placeholder='SSID' style='width:100%;margin:5px 0;padding:8px;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:5px'/><br>
+<input type='password' id='password' placeholder='Password' style='width:100%;margin:5px 0;padding:8px;background:#1a1a1a;color:#fff;border:1px solid #444;border-radius:5px'/><br>
+<button onclick='connectWiFi()'>Connect to WiFi</button>
+<div id='wifiStatus' style='margin-top:10px;color:#00ff88'></div>
+</div>
+<div class='card'>
+<div class='label'>📡 OTA Update</div>
+<form id='otaForm' enctype='multipart/form-data'>
+<input type='file' id='firmware' accept='.bin' style='margin:10px 0'/><br>
+<button type='button' onclick='uploadFirmware()'>Upload Firmware</button>
+</form>
+<div id='otaStatus' style='margin-top:10px;color:#00ff88'></div>
+</div>
+</div>
+<script>
+let startTime=Date.now();
+function updateData(){
+fetch('/api/status')
+.then(r=>r.json())
+.then(data=>{
+document.getElementById('voltage').innerHTML=data.battery.toFixed(1)+' <span class="unit">V</span>';
+document.getElementById('rpm').innerHTML=data.rpm+' <span class="unit">RPM</span>';
+let uptime=Math.floor((Date.now()-startTime)/1000);
+document.getElementById('uptime').textContent=uptime+'s';
+});
+}
+function updateWiFiStatus(){
+fetch('/api/wifi/status')
+.then(r=>r.json())
+.then(data=>{
+const status=document.getElementById('wifiStatus');
+if(data.connected){
+status.innerHTML='✓ Connected to <strong>'+data.ssid+'</strong><br>IP: '+data.ip;
+status.style.color='#00ff88';
+}else{
+status.textContent=data.message;
+status.style.color='#ff8800';
+}
+});
+}
+function resetBattery(){fetch('/api/battery/reset',{method:'POST'});}
+function startMotor(){fetch('/api/motor/start',{method:'POST'});}
+function stopMotor(){fetch('/api/motor/stop',{method:'POST'});}
+function scanNetworks(){
+const status=document.getElementById('wifiStatus');
+const list=document.getElementById('wifiList');
+status.textContent='Scanning...';
+fetch('/api/wifi/scan')
+.then(r=>r.json())
+.then(networks=>{
+list.innerHTML='<option value="">Select Network...</option>';
+networks.forEach(n=>{
+const opt=document.createElement('option');
+opt.value=n.ssid;
+opt.textContent=n.ssid+' ('+n.rssi+' dBm)';
+list.appendChild(opt);
+});
+status.textContent='Found '+networks.length+' networks';
+})
+.catch(e=>{status.textContent='Scan failed: '+e;});
+}
+document.getElementById('wifiList').addEventListener('change',function(){
+document.getElementById('ssid').value=this.value;
+});
+function connectWiFi(){
+const ssid=document.getElementById('ssid').value;
+const password=document.getElementById('password').value;
+const status=document.getElementById('wifiStatus');
+if(!ssid){alert('Please enter SSID');return;}
+status.textContent='Connecting...';
+fetch('/api/wifi/connect',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({ssid:ssid,password:password})
+})
+.then(r=>r.text())
+.then(msg=>{status.textContent=msg;updateWiFiStatus();})
+.catch(e=>{status.textContent='Connection failed: '+e;});
+}
+function clearWiFi(){
+const status=document.getElementById('wifiStatus');
+if(!confirm('Clear saved WiFi credentials?'))return;
+status.textContent='Clearing...';
+fetch('/api/wifi/clear',{method:'POST'})
+.then(r=>r.text())
+.then(msg=>{status.textContent=msg;})
+.catch(e=>{status.textContent='Clear failed: '+e;});
+}
+function uploadFirmware(){
+const file=document.getElementById('firmware').files[0];
+if(!file){alert('Please select a firmware file');return;}
+const status=document.getElementById('otaStatus');
+status.textContent='Uploading...';
+const formData=new FormData();
+formData.append('firmware',file);
+fetch('/api/ota/update',{method:'POST',body:formData})
+.then(r=>r.text())
+.then(msg=>{status.textContent=msg;})
+.catch(e=>{status.textContent='Upload failed: '+e;});
+}
+setInterval(updateData,500);
+setInterval(updateWiFiStatus,1000);
+updateData();
+updateWiFiStatus();
+</script>
+</body>
+</html>
