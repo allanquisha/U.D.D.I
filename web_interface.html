@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDDI Control Panel</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f0f0f0; }
+        .card { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-top: 0; }
+        h2 { color: #666; font-size: 1.2em; margin-top: 0; }
+        .status { font-size: 1.5em; margin: 10px 0; }
+        button { padding: 12px 24px; margin: 5px; font-size: 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-start { background: #4CAF50; color: white; }
+        .btn-stop { background: #f44336; color: white; }
+        .btn-reset { background: #2196F3; color: white; }
+        .btn-clear { background: #FF9800; color: white; }
+        button:hover { opacity: 0.8; }
+        .slider-container { margin: 20px 0; }
+        .slider { width: 100%; height: 40px; }
+        .speed-display { font-size: 1.3em; font-weight: bold; color: #4CAF50; margin: 10px 0; }
+        select { padding: 10px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; width: 100%; margin: 10px 0; }
+        label { display: block; margin: 10px 0 5px 0; font-weight: bold; color: #555; }
+        .protocol-info { font-size: 0.9em; color: #666; margin: 5px 0 15px 0; }
+    </style>
+</head>
+<body>
+    <h1>🚁 UDDI Control Panel</h1>
+    
+    <div class="card">
+        <h2>System Status</h2>
+        <div>Battery: <span id="battery" class="status">--</span> V</div>
+        <div>Motor RPM: <span id="rpm" class="status">--</span></div>
+        <button class="btn-reset" onclick="resetBattery()">Reset Battery</button>
+    </div>
+    
+    <div class="card">
+        <h2>Motor Control</h2>
+        
+        <label for="protocol">ESC Protocol:</label>
+        <select id="protocol" onchange="updateProtocol()">
+            <option value="standard">Standard PWM (50Hz, 1-2ms)</option>
+            <option value="oneshot125">OneShot125 (125-250µs)</option>
+            <option value="oneshot42">OneShot42 (42-84µs)</option>
+            <option value="multishot">Multishot (5-25µs)</option>
+        </select>
+        <div class="protocol-info" id="protocolInfo">Universal ESC compatibility, easy to debug</div>
+        
+        <div class="slider-container">
+            <label for="speedSlider">Throttle: <span class="speed-display"><span id="speedValue">0</span>%</span></label>
+            <input type="range" min="0" max="100" value="0" class="slider" id="speedSlider" oninput="updateSpeed(this.value)">
+        </div>
+        
+        <button class="btn-start" onclick="startMotor()">Start Motor (50%)</button>
+        <button class="btn-stop" onclick="stopMotor()">Stop Motor</button>
+    </div>
+    
+    <div class="card">
+        <h2>WiFi Connection</h2>
+        <div id="wifiStatus">Checking...</div>
+        <button class="btn-clear" onclick="clearWiFi()">Clear WiFi Credentials</button>
+    </div>
+
+    <script>
+        const protocolDescriptions = {
+            'standard': 'Universal ESC compatibility, easy to debug',
+            'oneshot125': 'Fast response, 8x faster than standard PWM',
+            'oneshot42': 'Very fast response, 24x faster than standard PWM',
+            'multishot': 'Ultra-fast response, 200x faster than standard PWM'
+        };
+
+        function updateStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('battery').textContent = d.battery.toFixed(1);
+                    document.getElementById('rpm').textContent = d.rpm;
+                })
+                .catch(e => console.error('Status error:', e));
+            
+            fetch('/api/wifi/status')
+                .then(r => r.json())
+                .then(d => {
+                    let status = d.connected ? 
+                        `✓ Connected to ${d.ssid}<br>IP: ${d.ip}` :
+                        `✗ ${d.message}`;
+                    document.getElementById('wifiStatus').innerHTML = status;
+                })
+                .catch(e => console.error('WiFi status error:', e));
+        }
+
+        function resetBattery() {
+            fetch('/api/battery/reset', { method: 'POST' })
+                .then(() => updateStatus());
+        }
+
+        function startMotor() {
+            fetch('/api/motor/start', { method: 'POST' })
+                .then(() => {
+                    document.getElementById('speedSlider').value = 50;
+                    document.getElementById('speedValue').textContent = 50;
+                    updateStatus();
+                });
+        }
+
+        function stopMotor() {
+            fetch('/api/motor/stop', { method: 'POST' })
+                .then(() => {
+                    document.getElementById('speedSlider').value = 0;
+                    document.getElementById('speedValue').textContent = 0;
+                    updateStatus();
+                });
+        }
+
+        function updateSpeed(value) {
+            document.getElementById('speedValue').textContent = value;
+            fetch('/api/motor/speed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ speed: parseInt(value) })
+            });
+        }
+
+        function updateProtocol() {
+            const protocol = document.getElementById('protocol').value;
+            document.getElementById('protocolInfo').textContent = protocolDescriptions[protocol];
+            
+            fetch('/api/motor/protocol', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ protocol: protocol })
+            });
+        }
+
+        function clearWiFi() {
+            if (confirm('Clear saved WiFi credentials? Device will restart in AP mode.')) {
+                fetch('/api/wifi/clear', { method: 'POST' })
+                    .then(() => alert('WiFi cleared! Device in AP mode.'));
+            }
+        }
+
+        setInterval(updateStatus, 1000);
+        updateStatus();
+    </script>
+</body>
+</html>
